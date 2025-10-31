@@ -5,7 +5,6 @@ const path = require('path');
 
 const app = express();
 
-// CORS enable
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
@@ -16,46 +15,53 @@ app.use((req, res, next) => {
 let binData = [];
 let isDataLoaded = false;
 
-console.log('Starting BIN data load...');
+console.log('🚀 Starting BIN Lookup API...');
 
-// Load BIN data from CSV
-try {
-  const csvPath = path.join(process.cwd(), 'bin-list-data.csv');
-  console.log('CSV Path:', csvPath);
-  console.log('File exists:', fs.existsSync(csvPath));
-  
-  if (!fs.existsSync(csvPath)) {
-    console.error('CSV file not found!');
-  }
+// Load BIN data immediately
+const loadBINData = () => {
+  return new Promise((resolve, reject) => {
+    const csvPath = path.join(process.cwd(), 'bin-list-data.csv');
+    console.log('📁 Loading CSV from:', csvPath);
+    
+    if (!fs.existsSync(csvPath)) {
+      console.error('❌ CSV file not found!');
+      reject(new Error('CSV file not found'));
+      return;
+    }
 
-  fs.createReadStream(csvPath)
-    .pipe(csv())
-    .on('data', (row) => {
-      binData.push(row);
-    })
-    .on('end', () => {
-      isDataLoaded = true;
-      console.log(`✅ BIN data loaded successfully. Total records: ${binData.length}`);
-      console.log('Sample BINs:', binData.slice(0, 3).map(item => item.BIN));
-    })
-    .on('error', (error) => {
-      console.error('Error loading CSV:', error);
-    });
-} catch (error) {
+    const stream = fs.createReadStream(csvPath)
+      .pipe(csv())
+      .on('data', (row) => {
+        binData.push(row);
+      })
+      .on('end', () => {
+        isDataLoaded = true;
+        console.log(`✅ BIN data loaded! Total records: ${binData.length}`);
+        
+        // Log sample data for verification
+        console.log('📝 Sample BINs loaded:');
+        binData.slice(0, 3).forEach(item => {
+          console.log(`   ${item.BIN}: ${item.Brand} - ${item.Issuer}`);
+        });
+        
+        resolve(binData);
+      })
+      .on('error', (error) => {
+        console.error('❌ CSV load error:', error);
+        reject(error);
+      });
+  });
+};
+
+// Start loading immediately and wait for it
+loadBINData().catch(error => {
   console.error('Failed to load BIN data:', error);
-}
+});
 
 // BIN lookup endpoint
 app.get('/api/lookup/:bin', (req, res) => {
   const { bin } = req.params;
   
-  if (!isDataLoaded) {
-    return res.status(503).json({ 
-      success: false,
-      message: 'Service initializing. Please try again in a moment.' 
-    });
-  }
-
   if (!bin || bin.length < 6) {
     return res.status(400).json({ 
       success: false,
@@ -64,51 +70,99 @@ app.get('/api/lookup/:bin', (req, res) => {
   }
 
   const binPrefix = bin.substring(0, 6);
-  console.log(`Looking up BIN: ${binPrefix}`);
+  console.log(`🔍 Looking up BIN: ${binPrefix}`);
   
-  // Exact match ရှာပါ
+  if (!isDataLoaded) {
+    return res.status(503).json({ 
+      success: false,
+      message: 'Database still loading. Please try again in 10 seconds.',
+      retryAfter: 10
+    });
+  }
+
+  // Exact match search
   const result = binData.find(item => item.BIN === binPrefix);
   
   if (result) {
-    console.log('BIN found:', result);
+    console.log(`✅ Found: ${result.Brand} - ${result.Issuer}`);
     res.json({
       success: true,
       data: result
     });
   } else {
-    console.log(`BIN ${binPrefix} not found in database`);
-    console.log('Available BINs sample:', binData.slice(0, 5).map(item => item.BIN));
+    console.log(`❌ BIN ${binPrefix} not found`);
+    
+    // Find similar BINs for debugging
+    const similar = binData.filter(item => 
+      item.BIN.startsWith(binPrefix.substring(0, 4))
+    ).slice(0, 3);
+    
     res.json({
       success: false,
-      message: 'BIN not found in database'
+      message: 'BIN not found in database',
+      similarBINs: similar.map(s => s.BIN)
     });
   }
 });
 
-// Health check endpoint
+// Bulk lookup endpoint
+app.get('/api/bulk-lookup', (req, res) => {
+  const { bins } = req.query;
+  
+  if (!bins) {
+    return res.status(400).json({
+      success: false,
+      message: 'No BINs provided. Use ?bins=411111,510510,424242'
+    });
+  }
+
+  const binList = bins.split(',').map(bin => bin.trim().substring(0, 6));
+  const results = binList.map(bin => {
+    const result = binData.find(item => item.BIN === bin);
+    return {
+      bin,
+      found: !!result,
+      data: result || null
+    };
+  });
+
+  res.json({
+    success: true,
+    results: results
+  });
+});
+
+// Database stats endpoint
+app.get('/api/stats', (req, res) => {
+  const brands = {};
+  const countries = {};
+  
+  binData.forEach(item => {
+    brands[item.Brand] = (brands[item.Brand] || 0) + 1;
+    countries[item.CountryName] = (countries[item.CountryName] || 0) + 1;
+  });
+
+  res.json({
+    success: true,
+    stats: {
+      totalRecords: binData.length,
+      dataLoaded: isDataLoaded,
+      brands: brands,
+      topCountries: Object.entries(countries)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+    }
+  });
+});
+
+// Health check
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     dataLoaded: isDataLoaded,
     totalRecords: binData.length,
-    sampleBINs: binData.slice(0, 3).map(item => item.BIN)
-  });
-});
-
-// Test endpoint with sample BINs
-app.get('/api/test', (req, res) => {
-  const testBINs = ['411111', '510510', '401288'];
-  const results = testBINs.map(bin => {
-    const result = binData.find(item => item.BIN === bin);
-    return { bin, found: !!result, data: result };
-  });
-  
-  res.json({
-    databaseStatus: {
-      loaded: isDataLoaded,
-      totalRecords: binData.length
-    },
-    testResults: results
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
   });
 });
 
