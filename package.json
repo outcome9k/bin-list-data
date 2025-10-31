@@ -1,0 +1,12 @@
+{
+  "name": "bin-lookup-service",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "node api/lookup.js",
+    "start": "node api/lookup.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "csv-parser": "^3.0.0"
+  }
+}
