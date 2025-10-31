@@ -1,0 +1,26 @@
+const fs = require('fs');
+const csv = require('csv-parser');
+
+console.log('🔍 Checking CSV file structure...');
+
+const results = [];
+fs.createReadStream('./bin-list-data.csv')
+  .pipe(csv())
+  .on('data', (data) => results.push(data))
+  .on('end', () => {
+    console.log(`📊 Total records: ${results.length}`);
+    console.log('📝 Columns:', Object.keys(results[0]));
+    
+    // Check first 10 BINs
+    console.log('🔢 First 10 BINs:');
+    results.slice(0, 10).forEach((row, index) => {
+      console.log(`  ${index + 1}. BIN: ${row.BIN}, Brand: ${row.Brand}`);
+    });
+    
+    // Check for common test BINs
+    const testBINs = ['411111', '510510', '401288', '424242'];
+    testBINs.forEach(bin => {
+      const found = results.find(row => row.BIN === bin);
+      console.log(`🎯 ${bin}: ${found ? 'FOUND ✅' : 'NOT FOUND ❌'}`);
+    });
+  });
