@@ -1,26 +1,26 @@
 const fs = require('fs');
 const csv = require('csv-parser');
 
-console.log('🔍 Checking CSV file structure...');
+console.log('🔍 Checking BIN 418210 in CSV file...');
 
 const results = [];
 fs.createReadStream('./bin-list-data.csv')
   .pipe(csv())
-  .on('data', (data) => results.push(data))
+  .on('data', (row) => {
+    if (row.BIN === '418210') {
+      console.log('✅ FOUND 418210:', row);
+    }
+    results.push(row);
+  })
   .on('end', () => {
     console.log(`📊 Total records: ${results.length}`);
-    console.log('📝 Columns:', Object.keys(results[0]));
     
-    // Check first 10 BINs
-    console.log('🔢 First 10 BINs:');
-    results.slice(0, 10).forEach((row, index) => {
-      console.log(`  ${index + 1}. BIN: ${row.BIN}, Brand: ${row.Brand}`);
-    });
-    
-    // Check for common test BINs
-    const testBINs = ['411111', '510510', '401288', '424242'];
-    testBINs.forEach(bin => {
-      const found = results.find(row => row.BIN === bin);
-      console.log(`🎯 ${bin}: ${found ? 'FOUND ✅' : 'NOT FOUND ❌'}`);
-    });
+    // Check if 418210 exists
+    const found = results.find(r => r.BIN === '418210');
+    if (!found) {
+      console.log('❌ 418210 NOT FOUND in CSV');
+      console.log('Sample BINs around 418xxx:');
+      const similar = results.filter(r => r.BIN.startsWith('418')).slice(0, 5);
+      similar.forEach(row => console.log(`   ${row.BIN}: ${row.Brand} - ${row.Issuer}`));
+    }
   });
